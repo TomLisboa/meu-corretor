@@ -1,4 +1,4 @@
-const CACHE_NAME = 'corretor-pwa-v1';
+const CACHE_NAME = 'corretor-pwa-v2';
 const urlsToCache = [
   './',
   './index.html',
