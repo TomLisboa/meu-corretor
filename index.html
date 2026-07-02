@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Corretor de Gabaritos PWA</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --background: #f8fafc;
+            --surface: #ffffff;
+            --text: #0f172a;
+            --border: #e2e8f0;
+            --success: #22c55e;
+            --danger: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+        body { background: var(--background); color: var(--text); padding-bottom: 80px; }
+        header { background: var(--primary); color: white; padding: 1rem; text-align: center; position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .container { padding: 1rem; max-width: 600px; margin: 0 auto; }
+        
+        /* Utilitários e Botões */
+        .hidden { display: none !important; }
+        .card { background: var(--surface); padding: 1rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1rem; }
+        button { background: var(--primary); color: white; border: none; padding: 0.75rem 1rem; border-radius: 6px; font-weight: bold; width: 100%; cursor: pointer; margin-top: 0.5rem; }
+        button.secondary { background: var(--surface); color: var(--primary); border: 1px solid var(--primary); }
+        button.danger { background: var(--danger); }
+        input[type="text"], input[type="number"] { width: 100%; padding: 0.75rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
+        
+        /* Grid de Alternativas (Gabarito e Revisão) */
+        .question-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+        .options-group { display: flex; gap: 0.5rem; }
+        .bubble { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; color: var(--text); }
+        .bubble.selected { background: var(--primary); color: white; border-color: var(--primary); }
+        .bubble.correct { background: var(--success); color: white; border-color: var(--success); }
+        .bubble.wrong { background: var(--danger); color: white; border-color: var(--danger); }
+
+        /* Lista de Provas */
+        .test-item { display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border); }
+        .test-item h3 { margin: 0; font-size: 1.1rem; }
+
+        /* Estilos Exclusivos para Impressão (Folha de Respostas) */
+        @media print {
+            body * { visibility: hidden; }
+            #print-area, #print-area * { visibility: visible; }
+            #print-area { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: white; padding: 20mm; }
+            .marker { width: 20px; height: 20px; background: black; position: absolute; }
+            .top-left { top: 10mm; left: 10mm; }
+            .top-right { top: 10mm; right: 10mm; }
+            .bottom-left { bottom: 10mm; left: 10mm; }
+            .bottom-right { bottom: 10mm; right: 10mm; }
+            .print-header { text-align: center; margin-bottom: 20mm; border-bottom: 2px solid black; padding-bottom: 10mm; }
+            .print-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; }
+            .print-q-row { display: flex; align-items: center; gap: 3mm; margin-bottom: 4mm; }
+            .print-bubble { width: 25px; height: 25px; border-radius: 50%; border: 2px solid black; display: flex; justify-content: center; align-items: center; font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h2 id="header-title">Meus Gabaritos</h2>
+    </header>
+
+    <!-- TELA INICIAL: Lista de Provas -->
+    <div id="screen-home" class="container">
+        <div class="card">
+            <button onclick="nav('create')">+ Criar Nova Prova</button>
+        </div>
+        <div class="card" id="test-list">
+            <!-- Provas renderizadas aqui -->
+        </div>
+    </div>
+
+    <!-- TELA: Criar Prova -->
+    <div id="screen-create" class="container hidden">
+        <div class="card">
+            <h3>Configurar Prova</h3>
+            <label>Nome da Avaliação (ex: Cinemática - Turma 1)</label>
+            <input type="text" id="new-test-name" placeholder="Nome da prova">
+            
+            <label>Número de Questões</label>
+            <input type="number" id="new-test-qtd" value="10" min="1" max="50">
+            
+            <label>Número de Alternativas</label>
+            <input type="number" id="new-test-alt" value="5" min="2" max="5">
+            
+            <button onclick="createTest()">Avançar para Gabarito</button>
+            <button class="secondary" onclick="nav('home')">Cancelar</button>
+        </div>
+    </div>
+
+    <!-- TELA: Definir Gabarito -->
+    <div id="screen-key" class="container hidden">
+        <div class="card">
+            <h3>Definir Gabarito Oficial</h3>
+            <p style="font-size: 0.8rem; color: #666; margin-bottom: 1rem;">Toque na alternativa correta para cada questão.</p>
+            <div id="key-grid"></div>
+            <button onclick="saveNewTest()">Salvar Prova</button>
+        </div>
+    </div>
+
+    <!-- TELA: Painel da Prova -->
+    <div id="screen-dashboard" class="container hidden">
+        <div class="card">
+            <h3 id="dash-title">Nome da Prova</h3>
+            <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                <button onclick="printSheet()" class="secondary">🖨️ Imprimir Folha</button>
+                <button onclick="exportCSV()" class="secondary">📊 Exportar CSV</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Corrigir Nova Prova</h3>
+            <!-- Captura de câmera nativa offline -->
+            <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;" onchange="processImage(event)">
+            <button onclick="document.getElementById('camera-input').click()">📷 Tirar Foto e Corrigir</button>
+            <canvas id="photo-canvas" style="display: none; max-width: 100%; margin-top: 1rem;"></canvas>
+        </div>
+
+        <div class="card">
+            <h3>Histórico de Correções</h3>
+            <div id="history-list"></div>
+        </div>
+        <button class="secondary" onclick="nav('home')">Voltar</button>
+    </div>
+
+    <!-- TELA: Revisão Manual (Após Foto) -->
+    <div id="screen-review" class="container hidden">
+        <div class="card">
+            <h3>Revisão Manual</h3>
+            <p style="font-size: 0.8rem; margin-bottom: 1rem;">O aluno marcou estas opções (corrija se houver erro de leitura da foto):</p>
+            <input type="text" id="student-name" placeholder="Nome do Aluno (Opcional)">
+            <div id="review-grid"></div>
+            <button onclick="saveGrade()">Confirmar e Salvar Nota</button>
+            <button class="secondary" onclick="nav('dashboard')">Descartar</button>
+        </div>
+    </div>
+
+    <!-- ÁREA DE IMPRESSÃO -->
+    <div id="print-area"></div>
+
+    <script>
+        // ESTADO DA APLICAÇÃO
+        let tests = JSON.parse(localStorage.getItem('omr_tests')) || {};
+        let currentTestId = null;
+        let tempKey = {};
+        let tempReview = {};
+
+        // ALFABETO PARA ALTERNATIVAS
+        const ALPHABET = ['A', 'B', 'C', 'D', 'E'];
+
+        // NAVEGAÇÃO
+        function nav(screen) {
+            document.querySelectorAll('.container').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`screen-${screen}`).classList.remove('hidden');
+            if(screen === 'home') renderHome();
+            if(screen === 'dashboard') renderDashboard();
+            window.scrollTo(0,0);
+        }
+
+        // TELA INICIAL
+        function renderHome() {
+            const list = document.getElementById('test-list');
+            list.innerHTML = '';
+            Object.values(tests).forEach(test => {
+                const div = document.createElement('div');
+                div.className = 'test-item';
+                div.innerHTML = `
+                    <div>
+                        <h3>${test.name}</h3>
+                        <small>${test.questions} questões | ${test.results.length} correções</small>
+                    </div>
+                    <button style="width: auto; padding: 0.5rem 1rem;" onclick="openTest('${test.id}')">Abrir</button>
+                `;
+                list.appendChild(div);
+            });
+            if(Object.keys(tests).length === 0) list.innerHTML = '<p>Nenhuma prova criada ainda.</p>';
+        }
+
+        // CRIAR PROVA
+        function createTest() {
+            const name = document.getElementById('new-test-name').value;
+            const qtd = parseInt(document.getElementById('new-test-qtd').value);
+            const alt = parseInt(document.getElementById('new-test-alt').value);
+            
+            if(!name) return alert("Dê um nome à prova.");
+            
+            tempKey = {};
+            currentTestId = 'test_' + Date.now();
+            tests[currentTestId] = { id: currentTestId, name, questions: qtd, options: alt, key: {}, results: [] };
+            
+            renderKeyGrid(qtd, alt, 'key-grid', tempKey, true);
+            nav('key');
+        }
+
+        function renderKeyGrid(qtd, alt, containerId, stateObj, isInteractive) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            for(let i = 1; i <= qtd; i++) {
+                const row = document.createElement('div');
+                row.className = 'question-row';
+                let html = `<span>${i}.</span><div class="options-group">`;
+                
+                for(let j = 0; j < alt; j++) {
+                    const letter = ALPHABET[j];
+                    html += `<div class="bubble" data-q="${i}" data-ans="${letter}" onclick="if(${isInteractive}) toggleBubble('${containerId}', ${i}, '${letter}', stateObj)">${letter}</div>`;
+                }
+                html += '</div>';
+                row.innerHTML = html;
+                container.appendChild(row);
+            }
+        }
+
+        function toggleBubble(containerId, q, ans) {
+            const stateObj = containerId === 'key-grid' ? tempKey : tempReview;
+            stateObj[q] = ans; // Salva a escolha
+            
+            // Atualiza UI
+            const row = document.querySelector(`#${containerId} .bubble[data-q="${q}"]`).parentNode;
+            row.querySelectorAll('.bubble').forEach(b => b.classList.remove('selected'));
+            row.querySelector(`.bubble[data-ans="${ans}"]`).classList.add('selected');
+        }
+
+        function saveNewTest() {
+            const test = tests[currentTestId];
+            if(Object.keys(tempKey).length < test.questions) {
+                return alert("Preencha o gabarito de todas as questões!");
+            }
+            test.key = { ...tempKey };
+            saveData();
+            nav('dashboard');
+        }
+
+        // PAINEL DA PROVA
+        function openTest(id) {
+            currentTestId = id;
+            nav('dashboard');
+        }
+
+        function renderDashboard() {
+            const test = tests[currentTestId];
+            document.getElementById('dash-title').innerText = test.name;
+            
+            const hist = document.getElementById('history-list');
+            hist.innerHTML = '';
+            test.results.forEach((res, idx) => {
+                hist.innerHTML += `
+                    <div style="padding: 0.5rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between;">
+                        <span>${res.student || 'Aluno ' + (idx+1)}</span>
+                        <strong>Nota: ${res.score}/${test.questions}</strong>
+                    </div>`;
+            });
+            if(test.results.length === 0) hist.innerHTML = '<p style="color:#666; font-size:0.9rem;">Nenhuma correção ainda.</p>';
+        }
+
+        // PROCESSAMENTO DE IMAGEM E REVISÃO MANUAL
+        function processImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const img = new Image();
+            const canvas = document.getElementById('photo-canvas');
+            const ctx = canvas.getContext('2d');
+
+            img.onload = function() {
+                // Desenha a imagem para visualização (opcional, pode ser oculto)
+                canvas.width = img.width / 4; // Escala para exibição
+                canvas.height = img.height / 4;
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                canvas.style.display = 'block';
+
+                // --- LÓGICA DO OMR (SIMULADA) ---
+                // Num ambiente real offline, é aqui que o OpenCV.js faria o threshold e contorno.
+                // Como solicitado na concepção, passamos direto para a etapa de REVISÃO MANUAL,
+                // que é fundamental para evitar notas erradas por leitura ruim da câmera.
+                
+                const test = tests[currentTestId];
+                tempReview = {}; // Limpa a revisão anterior
+                document.getElementById('student-name').value = '';
+                
+                renderKeyGrid(test.questions, test.options, 'review-grid', tempReview, true);
+                nav('review');
+            }
+            img.src = URL.createObjectURL(file);
+        }
+
+        function saveGrade() {
+            const test = tests[currentTestId];
+            let score = 0;
+            
+            // Calcula a nota
+            for(let i = 1; i <= test.questions; i++) {
+                if(tempReview[i] === test.key[i]) {
+                    score++;
+                }
+            }
+
+            const studentName = document.getElementById('student-name').value;
+            test.results.push({
+                student: studentName,
+                score: score,
+                answers: { ...tempReview },
+                date: new Date().toISOString()
+            });
+
+            saveData();
+            nav('dashboard');
+        }
+
+        // GERAÇÃO DE FOLHA DE RESPOSTAS E CSV
+        function printSheet() {
+            const test = tests[currentTestId];
+            const area = document.getElementById('print-area');
+            
+            let html = `
+                <div class="marker top-left"></div><div class="marker top-right"></div>
+                <div class="marker bottom-left"></div><div class="marker bottom-right"></div>
+                
+                <div class="print-header">
+                    <h2>${test.name} - Folha de Respostas</h2>
+                    <div style="margin-top: 10mm; text-align: left; border: 1px solid black; padding: 5mm;">
+                        Nome: __________________________________________________________________
+                    </div>
+                </div>
+                <div class="print-grid">
+            `;
+
+            for(let i = 1; i <= test.questions; i++) {
+                html += `<div class="print-q-row"><strong>${i < 10 ? '0'+i : i}.</strong>`;
+                for(let j = 0; j < test.options; j++) {
+                    html += `<div class="print-bubble">${ALPHABET[j]}</div>`;
+                }
+                html += `</div>`;
+            }
+
+            html += `</div>`;
+            area.innerHTML = html;
+            window.print();
+        }
+
+        function exportCSV() {
+            const test = tests[currentTestId];
+            let csv = "Aluno,Nota,Data\n";
+            test.results.forEach(r => {
+                csv += `"${r.student || 'Sem Nome'}","${r.score}","${new Date(r.date).toLocaleDateString()}"\n`;
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.setAttribute('hidden', '');
+            a.setAttribute('href', url);
+            a.setAttribute('download', `${test.name}_resultados.csv`);
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        // PERSISTÊNCIA E INICIALIZAÇÃO
+        function saveData() { localStorage.setItem('omr_tests', JSON.stringify(tests)); }
+        
+        // Registrar Service Worker para funcionar Offline
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').then(() => console.log("Offline mode ativado."));
+        }
+
+        renderHome();
+    </script>
+</body>
+</html>
