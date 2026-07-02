@@ -205,7 +205,8 @@
                 
                 for(let j = 0; j < alt; j++) {
                     const letter = ALPHABET[j];
-                    html += `<div class="bubble" data-q="${i}" data-ans="${letter}" onclick="if(${isInteractive}) toggleBubble('${containerId}', ${i}, '${letter}', stateObj)">${letter}</div>`;
+                    html += `<div class="bubble" data-q="${i}" data-ans="${letter}"onclick="if(${isInteractive}) toggleBubble('${containerId}', ${i}, '${letter}')">
+${letter}</div>`;
                 }
                 html += '</div>';
                 row.innerHTML = html;
